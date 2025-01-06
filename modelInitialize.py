@@ -124,6 +124,7 @@ class SmallQuadNet(nn.Module):
         x = F.leaky_relu(x)
         # FC layers
         x = x.view(-1, self.imu_window_size * 512)
+        
         x = F.leaky_relu(self.fc1(x))
         x = self.dropout2(x)
 

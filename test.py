@@ -9,8 +9,7 @@ matplotlib.use('TkAgg')
 # Paths to the datasets
 paths = {
     "Horizontal Trajectory": r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal\path_1\GT.csv",
-    "Straight Line": r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\StraightLine\path_1\GT.csv",
-    "Vertical Trajectory": r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Vertical\path_1\GT.csv",
+    
 }
 
 for trajectory_type, file_path in paths.items():
@@ -91,3 +90,42 @@ for trajectory_type, file_path in paths.items():
 
 # Explicitly call plt.show()
 plt.show(block=True)
+
+#can you plot a time siries discription of the exsistence of meserment in IMU_1 Vs GT in the same scale
+
+# Show the plot
+
+# Create a binary existence indicator for GT and IMU_1 measurements
+imu_data = pd.read_csv(r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal\path_1\IMU_1.csv")
+gt_existence = np.ones_like(time)
+imu_data["time"] = pd.to_numeric(imu_data["time"], errors="coerce")
+print("Rows before cleaning:", len(imu_data))
+imu_data = imu_data.dropna(subset=["time"])
+print("Rows after cleaning:", len(imu_data))
+
+imu_1_time = imu_data["time"]
+imu_1_existence = np.ones_like(imu_1_time)
+
+print("GT time range:", time.min(), time.max())
+print("IMU_1 time range:", imu_1_time.min(), imu_1_time.max())
+
+
+# Plot existence of measurements over time
+fig, ax = plt.subplots(figsize=(12, 6))
+# Filter the time range to show only 0 to 0.4 seconds
+time_filtered = time[(time >= 0) & (time <= 0.4)]
+gt_existence_filtered = gt_existence[(time >= 0) & (time <= 0.4)]
+
+imu_1_time_filtered = imu_1_time[(imu_1_time >= 0) & (imu_1_time <= 0.4)]
+imu_1_existence_filtered = imu_1_existence[(imu_1_time >= 0) & (imu_1_time <= 0.4)]
+
+ax.plot(time_filtered, gt_existence_filtered, label="GT Measurement Existence", color="blue", linestyle='None', marker='|')
+ax.plot(imu_1_time_filtered, imu_1_existence_filtered, label="IMU_1 Measurement Existence", color="red", linestyle='None', marker='|')
+ax.set_xlabel("Time (s)")
+ax.set_ylabel("Measurement Existence")
+ax.set_title("Existence of IMU_1 vs GT Measurements Over Time")
+ax.legend()
+ax.grid()
+
+# Show the plot
+plt.show()

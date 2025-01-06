@@ -17,7 +17,7 @@ def save_checkpoint(model, optimizer, iteration, checkpoint_path):
         'optimizer_state_dict': optimizer.state_dict(),
     }
     torch.save(checkpoint, checkpoint_path)
-    print(f"Checkpoint updated at {checkpoint_path}")
+    print(f"Checkpoint updated at {checkpoint_path} ")
 
 # Function to load model state
 def load_checkpoint(model, optimizer, checkpoint_path):
@@ -29,14 +29,15 @@ def load_checkpoint(model, optimizer, checkpoint_path):
             return 0
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print(f"Loaded checkpoint from {checkpoint_path}")
+        print(f"Loaded checkpoint from {checkpoint_path} ")
         return checkpoint['iteration']
     else:
         print("No checkpoint found, starting from scratch")
         return 0
 
 # Define the train_and_eval function for continuous training
-def train_and_eval_continuous(model, optimizer, criterion, imu_data, gt_data, iteration, checkpoint_path):
+def train_and_eval_continuous(model, optimizer, criterion,window_size, imu_data, gt_data, iteration, checkpoint_path):
+    
     # Extract relevant features (IMU data) and target (distance)
     imu_features = imu_data[["Acc_X", "Acc_Y", "Acc_Z", "Gyr_X", "Gyr_Y", "Gyr_Z"]].values
     distance = gt_data["distance(meters)"].values
@@ -45,24 +46,20 @@ def train_and_eval_continuous(model, optimizer, criterion, imu_data, gt_data, it
     scaler = StandardScaler()
     imu_features_normalized = scaler.fit_transform(imu_features)
 
-    # Define the number of timesteps per sequence
-    timesteps = 10
-
-    # Synchronize lengths of features and target
-    min_length = min(len(imu_features), len(distance))
-    imu_features = imu_features[:min_length]
-    distance = distance[:min_length]
-
-    # Create sequences for time-series data
-    def create_sequences(features, target, timesteps):
+    #####
+    # Create sequences for time-series data per GT
+    def create_sequences(features, target, window_size):
         X, y = [], []
-        max_index = len(target) - timesteps
-        for i in range(max_index):
-            X.append(features[i:i + timesteps])
-            y.append(target[i + timesteps])
+               
+        max_index = len(target) 
+        for i in range(1, max_index):
+            if len(features[i*window_size//2:]) < window_size//2:
+                break
+            X.append(features[(i*window_size//2)-window_size//2:(i*window_size//2) + window_size//2])
+            y.append(target[i])
         return np.array(X), np.array(y)
 
-    X, y = create_sequences(imu_features_normalized, distance, timesteps)
+    X, y = create_sequences(imu_features_normalized, distance[:], window_size)
 
     # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -72,8 +69,8 @@ def train_and_eval_continuous(model, optimizer, criterion, imu_data, gt_data, it
     y_train, y_test = torch.tensor(y_train, dtype=torch.float32), torch.tensor(y_test, dtype=torch.float32)
 
     # Training loop
-    num_epochs = 10
-    batch_size = 32
+    num_epochs = 20
+    batch_size = 20
     for epoch in range(num_epochs):
         model.train()
         epoch_loss = 0
@@ -87,12 +84,12 @@ def train_and_eval_continuous(model, optimizer, criterion, imu_data, gt_data, it
             # Forward pass
             optimizer.zero_grad()
             outputs = model(inputs)
-            loss = criterion(outputs.squeeze(), targets)
+            loss = criterion(outputs.squeeze(), targets.squeeze())
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
 
-        print(f"Iteration: {iteration} | Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}")
+        #print(f"Iteration: {iteration} | Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}")
 
     # Save model state after training
     save_checkpoint(model, optimizer, iteration, checkpoint_path)
@@ -105,11 +102,20 @@ def train_and_eval_continuous(model, optimizer, criterion, imu_data, gt_data, it
         test_loss = criterion(predictions, y_test)
         print(f"Iteration: {iteration} | Test Loss: {test_loss.item():.4f}")
 
+        # Calculate Mean Absolute Error (MAE) as accuracy metric
+        mae = torch.mean(torch.abs(predictions - y_test))
+        print(f"Iteration: {iteration} | Test MAE: {mae.item():.4f}")
+
+        # Append loss and MAE to lists for plotting
+        losses.append(test_loss.item())
+        maes.append(mae.item())
+        
+
     return model
 
 # Set up directories
 checkpoint_path = r"C:\Users\ofirk\.vscode\ansfl\checkpoint_model\model_checkpoint.pth"
-
+losses, maes, iterations = [], [], []
 # Ensure the directory exists
 os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
 
@@ -125,14 +131,10 @@ with open(checkpoint_path, 'w') as f:
 parent_folder = r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal"
 
 # Initialize the PyTorch model, loss function, and optimizer
-timesteps = 10
 n_features = 6  # IMU features (fixed for all folders)
-model = SmallQuadNet(Input=n_features, imu_window_size=timesteps)
+model = SmallQuadNet(Input=n_features, imu_window_size=120)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-
-
 
 # Train and evaluate across all folders continuously
 for i in range(1, 28):
@@ -148,16 +150,26 @@ for i in range(1, 28):
         if os.path.exists(gt_file) and os.path.exists(imu_file):
             gt_data = pd.read_csv(gt_file)
             imu_data = pd.read_csv(imu_file)
-
-            # Trim data to equal lengths
-            min_length = min(len(gt_data), len(imu_data))
-            gt_data = gt_data.iloc[:min_length].reset_index(drop=True)
-            imu_data = imu_data.iloc[:min_length].reset_index(drop=True)
+            #window_size = int((len(imu_data) / len(gt_data)) ) #how to make shur there is an equal number of sumples in each time gup? is it relavent?
+            window_size = 120
 
             print(f"Training on folder {folder_path} (Iteration {iteration})")
-            model = train_and_eval_continuous(model, optimizer, criterion, imu_data, gt_data, iteration, checkpoint_path)
+            model = train_and_eval_continuous(model, optimizer, criterion,window_size, imu_data, gt_data, iteration, checkpoint_path)
             iteration += 1
         else:
             print(f"Missing data in folder {folder_path}, skipping.")
     else:
         print(f"Folder {folder_path} does not exist, skipping.")
+
+# Plot the loss and MAE over iterations 
+plt.figure(figsize=(10, 5))
+plt.plot(losses, label='Loss')
+plt.plot(maes, label='MAE')
+plt.xlabel('Iterations')
+plt.ylabel('Value')
+plt.legend()
+plt.show()
+
+ #להבין איך אני מריצה בתוך הרשת בצורה כזו שיהיה חלון של מדידות והGT
+ #יהיה במרכז החלון ואז יהיה חפיפה בין התחומים של המדידות והרשת תלמד יותר טוב 
+ 
