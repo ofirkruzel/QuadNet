@@ -70,8 +70,9 @@ def train_and_eval_continuous(model, optimizer, criterion,window_size,timesteps,
     # Training loop
     num_epochs =10
     batch_size = 32
+    model.train()
     for epoch in range(num_epochs):
-        model.train()
+        
         epoch_loss = 0
         for i in range(0, len(X_train), batch_size):
             inputs = X_train[i:i + batch_size]
@@ -91,7 +92,7 @@ def train_and_eval_continuous(model, optimizer, criterion,window_size,timesteps,
         print(f"Iteration: {iteration} | Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}")
 
     # Save model state after training
-    save_checkpoint(model, optimizer, iteration, checkpoint_path)
+    #save_checkpoint(model, optimizer, iteration, checkpoint_path)
 
     # Evaluate the model
     model.eval()
@@ -119,6 +120,7 @@ losses, maes, iterations = [], [], []
 os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
 
 # Check if the checkpoint file exists and delete it
+"""
 if os.path.exists(checkpoint_path):
     os.remove(checkpoint_path)  # Delete the file
     print(f"Previous checkpoint file at {checkpoint_path} deleted.")
@@ -127,6 +129,7 @@ if os.path.exists(checkpoint_path):
 with open(checkpoint_path, 'w') as f:
     pass  # This creates an empty file
     print(f"Blank checkpoint file created at {checkpoint_path}")
+    """
 parent_folder = r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal"
 
 # Initialize the PyTorch model, loss function, and optimizer
@@ -136,8 +139,9 @@ criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # Train and evaluate across all folders continuously
+iteration=0
 for i in range(1, 28):
-    iteration = load_checkpoint(model, optimizer, checkpoint_path)  # Load checkpoint if available
+    #iteration = load_checkpoint(model, optimizer, checkpoint_path)  # Load checkpoint if available
     iteration += 1  # Increment iteration after loading checkpoint
     folder_name = f"path_{i}"
     folder_path = os.path.join(parent_folder, folder_name)
@@ -154,7 +158,7 @@ for i in range(1, 28):
             timesteps=int(120/(len(imu_data) / len(gt_data)))
             print(f"Training on folder {folder_path} (Iteration {iteration})")
             model = train_and_eval_continuous(model, optimizer, criterion,window_size,timesteps, imu_data, gt_data, iteration, checkpoint_path)
-            iteration += 1
+            
         else:
             print(f"Missing data in folder {folder_path}, skipping.")
     else:
@@ -168,7 +172,3 @@ plt.xlabel('Iterations')
 plt.ylabel('Value')
 plt.legend()
 plt.show()
-
- #להבין איך אני מריצה בתוך הרשת בצורה כזו שיהיה חלון של מדידות והGT
- #יהיה במרכז החלון ואז יהיה חפיפה בין התחומים של המדידות והרשת תלמד יותר טוב 
- 
