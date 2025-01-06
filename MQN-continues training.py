@@ -36,7 +36,7 @@ def load_checkpoint(model, optimizer, checkpoint_path):
         return 0
 
 # Define the train_and_eval function for continuous training
-def train_and_eval_continuous(model, optimizer, criterion,window_size, imu_data, gt_data, iteration, checkpoint_path):
+def train_and_eval_continuous(model, optimizer, criterion,window_size,timesteps, imu_data, gt_data, iteration, checkpoint_path):
     
     # Extract relevant features (IMU data) and target (distance)
     imu_features = imu_data[["Acc_X", "Acc_Y", "Acc_Z", "Gyr_X", "Gyr_Y", "Gyr_Z"]].values
@@ -48,18 +48,17 @@ def train_and_eval_continuous(model, optimizer, criterion,window_size, imu_data,
 
     #####
     # Create sequences for time-series data per GT
-    def create_sequences(features, target, window_size):
-        X, y = [], []
-               
+    def create_sequences(features, target, window_size,timesteps):
+        X, y = [], []     
         max_index = len(target) 
-        for i in range(1, max_index):
-            if len(features[i*window_size//2:]) < window_size//2:
+        for i in range(0, max_index):
+            if len(features[i:]) < window_size or i+timesteps >= max_index:
                 break
-            X.append(features[(i*window_size//2)-window_size//2:(i*window_size//2) + window_size//2])
-            y.append(target[i])
+            X.append(features[i:i + window_size])
+            y.append(target[i+timesteps])
         return np.array(X), np.array(y)
 
-    X, y = create_sequences(imu_features_normalized, distance[:], window_size)
+    X, y = create_sequences(imu_features_normalized, distance, window_size,timesteps)
 
     # Split into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -69,8 +68,8 @@ def train_and_eval_continuous(model, optimizer, criterion,window_size, imu_data,
     y_train, y_test = torch.tensor(y_train, dtype=torch.float32), torch.tensor(y_test, dtype=torch.float32)
 
     # Training loop
-    num_epochs = 20
-    batch_size = 20
+    num_epochs =10
+    batch_size = 32
     for epoch in range(num_epochs):
         model.train()
         epoch_loss = 0
@@ -89,7 +88,7 @@ def train_and_eval_continuous(model, optimizer, criterion,window_size, imu_data,
             optimizer.step()
             epoch_loss += loss.item()
 
-        #print(f"Iteration: {iteration} | Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}")
+        print(f"Iteration: {iteration} | Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}")
 
     # Save model state after training
     save_checkpoint(model, optimizer, iteration, checkpoint_path)
@@ -152,9 +151,9 @@ for i in range(1, 28):
             imu_data = pd.read_csv(imu_file)
             #window_size = int((len(imu_data) / len(gt_data)) ) #how to make shur there is an equal number of sumples in each time gup? is it relavent?
             window_size = 120
-
+            timesteps=int(120/(len(imu_data) / len(gt_data)))
             print(f"Training on folder {folder_path} (Iteration {iteration})")
-            model = train_and_eval_continuous(model, optimizer, criterion,window_size, imu_data, gt_data, iteration, checkpoint_path)
+            model = train_and_eval_continuous(model, optimizer, criterion,window_size,timesteps, imu_data, gt_data, iteration, checkpoint_path)
             iteration += 1
         else:
             print(f"Missing data in folder {folder_path}, skipping.")
