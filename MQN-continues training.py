@@ -125,7 +125,7 @@ def test(model, criterion, window_size, timesteps, imu_data, gt_data, iteration)
 losses, maes, iterations,accuracies = [], [], [],[]
 
 parent_folder = r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal"
-
+learning_rate = 0.001
 # Initialize the PyTorch model, loss function, and optimizer
 n_features = 6  # IMU features (fixed for all folders)
 model = SmallQuadNet(Input=n_features, imu_window_size=120)
@@ -139,7 +139,7 @@ def regularized_loss(output, target, model, lambda_l2=0.01):
         l2_reg = l2_reg + torch.norm(param, 2)
     return mse_loss + lambda_l2 * l2_reg
 """
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # Train and evaluate across all folders continuously
 iteration=0
