@@ -79,6 +79,8 @@ def train(model, optimizer, criterion,window_size,timesteps, imu_data, gt_data, 
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
+            
+        scheduler.step(epoch_loss / len(X))
 
         print(f"Iteration: {iteration} | Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}")
     return model
@@ -140,7 +142,7 @@ def regularized_loss(output, target, model, lambda_l2=0.01):
     return mse_loss + lambda_l2 * l2_reg
 """
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.7, patience=4, verbose=True)
 # Train and evaluate across all folders continuously
 iteration=0
 for i in range(1, 27):
