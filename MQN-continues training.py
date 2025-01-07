@@ -8,6 +8,7 @@ from sklearn.preprocessing import StandardScaler
 import os
 from modelInitialize import SmallQuadNet
 import matplotlib.pyplot as plt
+import optuna
 
 def calculate_distance(North,East,Down):
     
@@ -146,27 +147,27 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0
 # Train and evaluate across all folders continuously
 iteration=0
 for i in range(1, 27):
+    for imu in range(1,5):
+        iteration += 1  # Increment iteration after loading checkpoint
+        folder_name = f"path_{i}"
+        folder_path = os.path.join(parent_folder, folder_name)
 
-    iteration += 1  # Increment iteration after loading checkpoint
-    folder_name = f"path_{i}"
-    folder_path = os.path.join(parent_folder, folder_name)
+        if os.path.isdir(folder_path):
+            gt_file = os.path.join(folder_path, "GT.csv")
+            imu_file = os.path.join(folder_path, f"IMU_{imu}.csv")
 
-    if os.path.isdir(folder_path):
-        gt_file = os.path.join(folder_path, "GT.csv")
-        imu_file = os.path.join(folder_path, "IMU_1.csv")
-
-        if os.path.exists(gt_file) and os.path.exists(imu_file):
-            gt_data = pd.read_csv(gt_file)
-            imu_data = pd.read_csv(imu_file)
-            window_size = 120
-            timesteps=int(120/(len(imu_data) / len(gt_data)))
-            print(f"Training on folder {folder_path} (Iteration {iteration})")
-            model = train(model, optimizer, criterion,window_size,timesteps, imu_data, gt_data, iteration)
-            
+            if os.path.exists(gt_file) and os.path.exists(imu_file):
+                gt_data = pd.read_csv(gt_file)
+                imu_data = pd.read_csv(imu_file)
+                window_size = 120
+                timesteps=int(120/(len(imu_data) / len(gt_data)))
+                print(f"Training on folder {folder_path}|IMU {imu} (Iteration {iteration})")
+                model = train(model, optimizer, criterion,window_size,timesteps, imu_data, gt_data, iteration)
+                
+            else:
+                print(f"Missing data in folder {folder_path}, skipping.")
         else:
-            print(f"Missing data in folder {folder_path}, skipping.")
-    else:
-        print(f"Folder {folder_path} does not exist, skipping.")
+            print(f"Folder {folder_path} does not exist, skipping.")
 
 num_test=1
 for i in range(27, 28):
