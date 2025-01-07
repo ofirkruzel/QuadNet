@@ -20,7 +20,7 @@ def calculate_distance(North,East,Down):
 def create_sequences(features, target, window_size,timesteps):
     X, y = [], []     
     max_index = len(target) 
-    for i in range(0, max_index):
+    for i in range(0, max_index, window_size // 2):
         if len(features[i:]) < window_size or i+timesteps >= max_index:
             break
         X.append(features[i:i + window_size])
@@ -79,7 +79,7 @@ def train(model, optimizer, criterion,window_size,timesteps, imu_data, gt_data, 
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-            
+
         scheduler.step(epoch_loss / len(X))
 
         print(f"Iteration: {iteration} | Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}")
