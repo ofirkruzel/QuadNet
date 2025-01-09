@@ -100,18 +100,24 @@ class SmallQuadNet(nn.Module):
         self.conv4 = nn.Conv1d(256, 512, 3, 1, padding=1)
         self.fc1 = nn.Linear(self.imu_window_size * 512, 512)
         self.fc2 = nn.Linear(512, 1)
-        self.dropout2 = nn.Dropout(0.8)
+        #self.dropout2 = nn.Dropout(0.8)
+        # Dropout Layers
+        self.dropout1 = nn.Dropout(0.5)  # Add dropout after some convolutional layers
+        self.dropout2 = nn.Dropout(0.8)  # Existing dropout
+        self.dropout3 = nn.Dropout(0.5)  # Add dropout after the FC layers
 
     def forward(self, x):
         #print("Input shape to SmallQuadNet forward:", x.shape) 
         # 1st Layer
         x = self.conv1(x)
         x = F.leaky_relu(x)
+        #x=self.dropout1(x)#########
         x = self.conv_1_2(x)
         x = F.leaky_relu(x)
         # 2nd Layer
         x = self.conv2(x)
         x = F.leaky_relu(x)
+        #x=self.dropout1(x)#########
         x = self.conv_2_3(x)
         x = F.leaky_relu(x)
         # 3rd Layer
@@ -119,6 +125,7 @@ class SmallQuadNet(nn.Module):
         x = F.leaky_relu(x)
         x = self.conv_3_4(x)
         x = F.leaky_relu(x)
+        #x=self.dropout1(x)##########
         # 4th Layer
         x = self.conv4(x)
         x = F.leaky_relu(x)
@@ -127,5 +134,9 @@ class SmallQuadNet(nn.Module):
         
         x = F.leaky_relu(self.fc1(x))
         x = self.dropout2(x)
+        x = F.leaky_relu(self.fc2(x))
+        #x = self.dropout3(x) 
 
-        return F.leaky_relu(self.fc2(x))
+        return x
+    
+    

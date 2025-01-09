@@ -8,7 +8,7 @@ matplotlib.use('TkAgg')
 
 # Paths to the datasets
 paths = {
-    "Horizontal Trajectory": r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal\path_1\GT.csv",
+    "Horizontal Trajectory": r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal\path_12\GT.csv",
     
 }
 
@@ -28,6 +28,7 @@ for trajectory_type, file_path in paths.items():
     height = data["height_above_takeoff(meters)"]
     north = data["North"]
     east = data["East"]
+    down = data["Down"]
     
     # Create a new figure with subplots
     fig, axs = plt.subplots(3, 2, figsize=(12, 18))
@@ -128,4 +129,187 @@ ax.legend()
 ax.grid()
 
 # Show the plot
+plt.show()
+
+from scipy.interpolate import UnivariateSpline
+
+
+
+
+# Fit splines to each axis with no smoothing (s=0 ensures the fit passes through all points)
+north_spline = UnivariateSpline(time, north, s=0.5)
+east_spline = UnivariateSpline(time, east, s=0.5)
+down_spline = UnivariateSpline(time, down, s=0.5)
+north_pose = north_spline(time)
+# Derive velocity functions (derivative of position)
+north_velocity = north_spline.derivative()(time)
+east_velocity = east_spline.derivative()(time)
+down_velocity = down_spline.derivative()(time)
+
+# Velocity arrays now have the same size as the original position data
+print("North Velocity:", north_velocity)
+print("East Velocity:", east_velocity)
+print("Down Velocity:", down_velocity)
+
+# Plotting position and velocity for one axis (e.g., North)
+plt.figure(figsize=(10, 6))
+plt.plot(time, north, label='North Position', marker='o')
+plt.plot(time, north_pose, label='North Position- polinom', marker='*')
+plt.plot(time, north_velocity, label='North Velocity', marker='x')
+plt.legend()
+plt.xlabel('Time')
+plt.ylabel('Value')
+plt.title('Position and Velocity (North)')
+plt.show()
+
+from scipy.fftpack import fft, ifft
+
+
+cutoff_freq = 0.6  
+# Define a cutoff frequency to filter noise (adjust as needed)
+ # Adjust based on your data characteristics
+def fourier_series_approximation(time, data, cutoff_freq):
+    # Ensure input is a NumPy array
+    time = np.asarray(time)
+    data = np.asarray(data)
+ 
+    if len(time) < 2 or len(data) < 2:
+        raise ValueError("Time and data arrays must have at least two elements.")
+    
+    # Fourier Transform
+    freq = np.fft.fftfreq(len(time), d=(time[1] - time[0]))
+    fft_coeffs = fft(data)
+    
+    # Filter high frequencies
+    fft_coeffs_filtered = fft_coeffs * (abs(freq) < cutoff_freq)
+    
+    # Inverse Fourier Transform (filtered signal)
+    approximated_signal = ifft(fft_coeffs_filtered).real
+    
+    # Compute velocity (derivative of position)
+    velocity = np.gradient(approximated_signal, time)
+    
+    return approximated_signal, velocity
+
+# Apply Fourier Series Approximation to each direction
+north_position, north_velocity = fourier_series_approximation(time, north, cutoff_freq)
+east_position, east_velocity = fourier_series_approximation(time, east, cutoff_freq)
+down_position, down_velocity = fourier_series_approximation(time, down, cutoff_freq)
+
+# Plotting Positions and Velocities
+plt.figure(figsize=(12, 8))
+
+# North
+plt.subplot(3, 1, 1)
+plt.plot(time, north, label='North Position (Original)', marker='o')
+plt.plot(time, north_position, label='North Position (Fourier)', linestyle='--')
+plt.plot(time, north_velocity, label='North Velocity', linestyle='-')
+plt.legend()
+plt.title('North Direction')
+plt.xlabel('Time')
+plt.ylabel('Value')
+
+# East
+plt.subplot(3, 1, 2)
+plt.plot(time, east, label='East Position (Original)', marker='o')
+plt.plot(time, east_position, label='East Position (Fourier)', linestyle='--')
+plt.plot(time, east_velocity, label='East Velocity', linestyle='-')
+plt.legend()
+plt.title('East Direction')
+plt.xlabel('Time')
+plt.ylabel('Value')
+
+# Down
+plt.subplot(3, 1, 3)
+plt.plot(time, down, label='Down Position (Original)', marker='o')
+plt.plot(time, down_position, label='Down Position (Fourier)', linestyle='--')
+plt.plot(time, down_velocity, label='Down Velocity', linestyle='-')
+plt.legend()
+plt.title('Down Direction')
+plt.xlabel('Time')
+plt.ylabel('Value')
+
+plt.tight_layout()
+plt.show()
+
+import numpy as np
+from scipy.interpolate import UnivariateSpline
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+
+
+
+# Split into training and validation sets
+time_train, time_val, north_train, north_val = train_test_split(time, north, test_size=0.3, shuffle=False)
+_, _, east_train, east_val = train_test_split(time, east, test_size=0.3, shuffle=False)
+_, _, down_train, down_val = train_test_split(time, down, test_size=0.3, shuffle=False)
+
+# Range of smoothing factors to test
+s_values = np.linspace(0, 10, 50)  # Adjust range based on data
+errors_north = []
+errors_east = []
+errors_down = []
+
+# Test smoothing factors for each direction
+for s in s_values:
+    # Fit splines for each axis
+    spline_north = UnivariateSpline(time_train, north_train, s=s)
+    spline_east = UnivariateSpline(time_train, east_train, s=s)
+    spline_down = UnivariateSpline(time_train, down_train, s=s)
+
+    # Predict on validation set
+    north_pred = spline_north(time_val)
+    east_pred = spline_east(time_val)
+    down_pred = spline_down(time_val)
+
+    # Compute errors
+    errors_north.append(mean_squared_error(north_val, north_pred))
+    errors_east.append(mean_squared_error(east_val, east_pred))
+    errors_down.append(mean_squared_error(down_val, down_pred))
+
+# Find the best smoothing factor for each direction
+best_s_north = s_values[np.argmin(errors_north)]
+best_s_east = s_values[np.argmin(errors_east)]
+best_s_down = s_values[np.argmin(errors_down)]
+
+print(f"Best smoothing factor for North: {best_s_north}")
+print(f"Best smoothing factor for East: {best_s_east}")
+print(f"Best smoothing factor for Down: {best_s_down}")
+
+# Fit final splines with the best smoothing factors
+spline_north = UnivariateSpline(time, north, s=best_s_north)
+spline_east = UnivariateSpline(time, east, s=best_s_east)
+spline_down = UnivariateSpline(time, down, s=best_s_down)
+
+# Evaluate the smoothed positions
+north_smoothed = spline_north(time)
+east_smoothed = spline_east(time)
+down_smoothed = spline_down(time)
+
+# Plot original and smoothed data
+plt.figure(figsize=(12, 8))
+
+# North
+plt.subplot(3, 1, 1)
+plt.plot(time, north, 'o', label='Original North', markersize=4)
+plt.plot(time, north_smoothed, label='Smoothed North')
+plt.legend()
+plt.title('North Direction')
+
+# East
+plt.subplot(3, 1, 2)
+plt.plot(time, east, 'o', label='Original East', markersize=4)
+plt.plot(time, east_smoothed, label='Smoothed East')
+plt.legend()
+plt.title('East Direction')
+
+# Down
+plt.subplot(3, 1, 3)
+plt.plot(time, down, 'o', label='Original Down', markersize=4)
+plt.plot(time, down_smoothed, label='Smoothed Down')
+plt.legend()
+plt.title('Down Direction')
+
+plt.tight_layout()
 plt.show()
