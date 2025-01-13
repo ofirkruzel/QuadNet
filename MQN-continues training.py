@@ -1,23 +1,26 @@
-import pandas as pd
+import os
+
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+# from scipy.fftpack import fft, ifft
+from scipy.interpolate import UnivariateSpline
+# import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import os
-from modelInitialize import SmallQuadNet
-import matplotlib.pyplot as plt
-from sklearn.metrics import mean_squared_error
-from scipy.fftpack import fft, ifft
-from scipy.interpolate import UnivariateSpline
 from torch.optim.lr_scheduler import LambdaLR
 
-def calculate_distance(North,East,Down):
+from modelInitialize import QuadNet3
+
+
+def calculate_distance(north,east,down):
     
     distance = []
-    for i in range(1,len(North)):
-        distance.append(np.sqrt((North[i]-North[i-1])**2+(East[i]-East[i-1])**2+(Down[i]-Down[i-1])**2))
+    for i in range(1,len(north)):
+        distance.append(np.sqrt((north[i]-north[i-1])**2+(east[i]-east[i-1])**2+(down[i]-down[i-1])**2))
     return distance
 
 def best_smoothing_factor(time,north,east,down):
@@ -84,7 +87,7 @@ def best_smoothing_factor(time,north,east,down):
     plt.tight_layout()
     plt.show(block=True)
     """
-    return best_s_north, best_s_east, best_s_down
+    return float(best_s_north), float(best_s_east), float(best_s_down)
 
 def best_smoothing_factor_for_total_velocity(time,velocity):
     velocity = velocity.detach().numpy()
@@ -109,7 +112,7 @@ def best_smoothing_factor_for_total_velocity(time,velocity):
     # Find the best smoothing factor for each direction
     best_s_velocity = s_values[np.argmin(errors_velocity)]
 
-    return best_s_velocity
+    return float(best_s_velocity)
 
 def calculate_velocity_and_distance(time,north,east,down):
     best_s_north, best_s_east, best_s_down=best_smoothing_factor(time,north,east,down)
@@ -127,71 +130,34 @@ def calculate_velocity_and_distance(time,north,east,down):
         velocity.append(np.sqrt((north_velocity[i]-north_velocity[i-1])**2+(east_velocity[i]-east_velocity[i-1])**2+(down_velocity[i]-down_velocity[i-1])**2))
         distance.append(np.sqrt((north[i]-north[i-1])**2+(east[i]-east[i-1])**2+(down[i]-down[i-1])**2))
     return velocity,distance
-"""
-def calculate_velocity(time,north,east,down):
-    
-# Define a cutoff frequency to filter noise (adjust as needed)
-    cutoff_frequency = 0.6  # Adjust based on your data characteristics
-    velocity=[]
-    def fourier_series_approximation(time, data, cutoff_freq):
-        # Ensure input is a NumPy array
-        time = np.asarray(time)
-        data = np.asarray(data)
-
-        if len(time) < 2 or len(data) < 2:
-            raise ValueError("Time and data arrays must have at least two elements.")
-        
-        # Fourier Transform
-        freq = np.fft.fftfreq(len(time), d=(time[1] - time[0]))
-        fft_coeffs = fft(data)
-        
-        # Filter high frequencies
-        fft_coeffs_filtered = fft_coeffs * (abs(freq) < cutoff_freq)
-        
-        # Inverse Fourier Transform (filtered signal)
-        approximated_signal = ifft(fft_coeffs_filtered).real
-        
-        # Compute velocity (derivative of position)
-        velocity = np.gradient(approximated_signal, time)
-        
-        return approximated_signal, velocity
-
-    # Apply Fourier Series Approximation to each direction
-    north_position, north_velocity = fourier_series_approximation(time, north, cutoff_frequency)
-    east_position, east_velocity = fourier_series_approximation(time, east, cutoff_frequency)
-    down_position, down_velocity = fourier_series_approximation(time, down, cutoff_frequency)
-    for i in range(1,len(north)):
-        velocity.append(np.sqrt((north_velocity[i]-north_velocity[i-1])**2+(east_velocity[i]-east_velocity[i-1])**2+(down_velocity[i]-down_velocity[i-1])**2))
-    return velocity
-"""
 
 def create_data(imu_data, gt_data):
     # Extract relevant features (IMU data) and target (distance)
     imu_features = imu_data[["Acc_X", "Acc_Y", "Acc_Z", "Gyr_X", "Gyr_Y", "Gyr_Z"]].values
     time=gt_data["time"].values
-    North=gt_data["North"].values
-    East=gt_data["East"].values
-    Down=gt_data["Down"].values
+    north=gt_data["North"].values
+    east=gt_data["East"].values
+    down=gt_data["Down"].values
   
-    velocity, distance = calculate_velocity_and_distance(time,North,East,Down)
+    velocity, distance = calculate_velocity_and_distance(time,north,east,down)
     return imu_features,velocity, distance,time[1:]
 
 
 # Create sequences for time-series data per GT
 def create_sequences(features, velocity,distance,time, window_size):
-    X, v,d,t = [], [],[],[]
+    x, v,d,t = [], [],[],[]
     max_index = len(features) 
     j=0
     timesteps=int(120/(len(features) / len(velocity)))
     for i in range(0, max_index,window_size): # i is for the features, j is for the target
         if len(features[i:]) < window_size or j >= len(velocity):
             break
-        X.append(features[i:i + window_size])
+        x.append(features[i:i + window_size])
         v.append(velocity[j+timesteps])#i+timesteps]
         d.append(distance[j+timesteps])#i+timesteps]
         t.append(time[j+timesteps])
         j+=1
-    return np.array(X), np.array(v),np.array(d),np.array(t)
+    return np.array(x), np.array(v),np.array(d),np.array(t)
 
 
 def costomize_loss(time,velocity_pred, distance, criterion):
@@ -205,22 +171,32 @@ def costomize_loss(time,velocity_pred, distance, criterion):
 
     # Use NumPy arrays with UnivariateSpline
     spline_velocity = UnivariateSpline(time_np, velocity_pred_np, s=best_s)
-    
-            
-
     # Integrate to get position
-    position = spline_velocity.antiderivative()(time)
-            
+    #position = spline_velocity.antiderivative()(time)
     # Compare to GT position - distance
-        
+    distance_predicted = [spline_velocity.integral(time[i - 1], time[i]) for i in range(1, len(time))]
     # Calculate MSE loss for position
     #mse_loss = criterion(torch.tensor(position, dtype=torch.float32), torch.tensor(distance, dtype=torch.float32))
     #mse_loss = criterion(position.clone().detach().float(), distance.clone().detach().float())
-    position = torch.tensor(position, dtype=torch.float32)
+    #sample from position len(distance)+1 data set' and the calculate the delta between evert 2 samples
+    
+    distance_predicted = torch.tensor(distance_predicted, dtype=torch.float32)
 
-    mse_loss = criterion(position.float(), distance.float())
-
-    return mse_loss,position
+    import matplotlib.pyplot as plt
+    
+    # Plotting distance_predicted vs time
+    plt.figure(figsize=(10, 6))
+    plt.plot(time.detach().numpy()[1:], distance_predicted.numpy(), label="Predicted Distance", color="red")
+    plt.xlabel("Time")
+    plt.ylabel("Distance Predicted")
+    plt.title("Distance Predicted vs Time")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    
+    mse_loss = criterion(distance_predicted.float(), distance[1:].float())
+    
+    return mse_loss,distance_predicted
 
 
 def train(model, optimizer,scheduler, criterion,window_size, imu_data, gt_data, iteration,batch_size,num_epochs,lambda_reg):
@@ -231,16 +207,16 @@ def train(model, optimizer,scheduler, criterion,window_size, imu_data, gt_data, 
     #plt.title("velocity in time")
     #plt.show()
 
-    X, y,d,t = create_sequences(imu_features, velocity,distance,time, window_size)
-    X, y ,d,t= torch.tensor(X, dtype=torch.float32), torch.tensor(y ,dtype=torch.float32),torch.tensor(d ,dtype=torch.float32),torch.tensor(t ,dtype=torch.float32)
+    x, y,d,t = create_sequences(imu_features, velocity,distance,time, window_size)
+    x, y ,d,t= torch.tensor(x, dtype=torch.float32), torch.tensor(y ,dtype=torch.float32),torch.tensor(d ,dtype=torch.float32),torch.tensor(t ,dtype=torch.float32)
 
     # Training loop
     model.train()
     for epoch in range(num_epochs):
         
         epoch_loss = 0
-        for i in range(0, len(X), batch_size):
-            inputs = X[i:i + batch_size]
+        for i in range(0, len(x), batch_size):
+            inputs = x[i:i + batch_size]
             #Adjust input shape for BatchNorm1d: [batch_size, features, sequence_length]
             inputs = inputs.permute(0, 2, 1)  # Shape: [batch_size, features, sequence_length]
 
@@ -282,31 +258,44 @@ def test(model, criterion, window_size, imu_data, gt_data, iteration,accuracy_th
     scaler = StandardScaler()
     imu_features_normalized = scaler.fit_transform(imu_features)
 
-    X, y,d,t = create_sequences(imu_features_normalized, velocity,distance,time, window_size)
-    X, y,d,t = torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32),torch.tensor(d, dtype=torch.float32),torch.tensor(t, dtype=torch.float32)
+    x,y,d,t = create_sequences(imu_features_normalized, velocity,distance,time, window_size)
+    x,y,d,t = torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32),torch.tensor(d, dtype=torch.float32),torch.tensor(t, dtype=torch.float32)
     
     # Evaluate the model
     model.eval()
     with torch.no_grad():
-        X = X.permute(0, 2, 1)  # Adjust shape for testing
-        predictions_v = model(X).squeeze()
+        
+        x = x.permute(0, 2, 1)  # Adjust shape for testing
+        predictions_v = model(x).squeeze()
         test_loss,prediction_d = costomize_loss(t,predictions_v.squeeze(), d.squeeze(), criterion)
         print(f"Iteration: {iteration} | Test Loss: {test_loss.item():.4f}")
-
+        
+        # Plot prediction_d vs d
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(10, 6))
+        plt.plot(d[1:].detach().numpy(), label="Ground Truth Distance (d)", color='blue')
+        plt.plot(prediction_d.detach().numpy(), label="Predicted Distance (prediction_d)", color='orange')
+        plt.xlabel("Sample")
+        plt.ylabel("Distance")
+        plt.title("Comparison of Predicted vs Ground Truth Distance")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+    
         # Calculate Mean Absolute Error (MAE) as accuracy metric
-        mae = torch.mean(torch.abs(prediction_d - d))
+        mae = torch.mean(torch.abs(prediction_d - d[1:]))
         print(f"Iteration: {iteration} | Test MAE: {mae.item():.4f}")
 
-        RAE_distance = torch.mean(torch.abs(prediction_d - d)/torch.abs(y))*100#A higher RAE indicates that, relative to the true values, your model's predictions are off by an average of the outcome
-        print(f"RAE distance: {RAE_distance.item():.4f}")
+        rae_distance = torch.mean(torch.abs(prediction_d - d[1:])/torch.abs(d[1:]))*100#A higher RAE indicates that, relative to the true values, your model's predictions are off by an average of the outcome
+        print(f"RAE distance: {rae_distance.item():.4f}")
 
         # Calculate accuracy (percentage of predictions within a certain threshold)
         
-        accuracy = torch.mean((torch.abs(prediction_d - d) < accuracy_threshold).float()) * 100#High accuracy suggests that the majority of predictions meet your application's requirements based on the chosen threshold.
+        accuracy = torch.mean((torch.abs(prediction_d - d[1:]) < accuracy_threshold).float()) * 100#High accuracy suggests that the majority of predictions meet your application's requirements based on the chosen threshold.
         print(f"Iteration: {iteration} | Test Accuracy: {accuracy.item():.2f}%")
 
         
-    return RAE_distance, accuracy, mae, test_loss.item()
+    return rae_distance, accuracy, mae, test_loss.item()
 
 
 
@@ -322,10 +311,10 @@ def real_training():
     scheduler_patience=4
     accuracy_threshold = 0.1
 
-    parent_folder = r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal"
+    parent_folder = r"C:\Users\ofirk\PycharmProjects\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal"
 
     # Initialize the PyTorch model, loss function, and optimizer
-    model = SmallQuadNet(6, 120)
+    model = QuadNet3(6, 120)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=optimizer_learning_rate)
     #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', scheduler_factor,scheduler_patience, verbose=True)#factor and patience from the article
@@ -359,7 +348,7 @@ def real_training():
     #save model parameters
     torch.save(model.state_dict(), "model.pth")
     # Define the file path to save the model
-    model_save_path = r"C:\Users\ofirk\.vscode\ansfl\modle_parameters.pth"
+    model_save_path = r"C:\Users\ofirk\PycharmProjects\ansfl\modle_parameters.pth"
 
     # Save the model's state dictionary
     torch.save(model.state_dict(), model_save_path)
@@ -367,13 +356,13 @@ def real_training():
 
 def real_testing(): 
     # Initialize the model
-    model = SmallQuadNet(6, 120)
+    model = QuadNet3(6, 120)
     criterion = nn.MSELoss()
-    model_save_path = r"C:\Users\ofirk\.vscode\ansfl\modle_parameters.pth"
+    model_save_path = r"C:\Users\ofirk\PycharmProjects\ansfl\modle_parameters.pth"
     # Load the model parameters
-    model.load_state_dict(torch.load(model_save_path))
+    model.load_state_dict(torch.load(model_save_path, weights_only=True))
     print("Model parameters loaded successfully")
-    parent_folder = r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal"
+    parent_folder = r"C:\Users\ofirk\PycharmProjects\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal"
     num_test=1
     for i in range(23, 28):
         
@@ -392,10 +381,10 @@ def real_testing():
                 
                 
                 print(f"test on folder {folder_path} (Iteration 1)")
-                accuracyies,RAE,maes,losses  = test(model, criterion,window_size, imu_data, gt_data, iteration=1,accuracy_threshold=0.1)
+                accuracyies,rae,maes,losses  = test(model, criterion,window_size, imu_data, gt_data, iteration=1,accuracy_threshold=0.1)
                 print(f"for test path {i}")
                 print("accuracy",accuracyies)
-                print("RAE",RAE)
+                print("RAE",rae)
                 print("mae",maes)
                 print("loss",losses)
             else:
