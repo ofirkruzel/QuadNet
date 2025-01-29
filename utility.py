@@ -94,35 +94,51 @@ def best_smoothing_factor(time, north, east, down):
 
 
 def best_smoothing_factor_for_total_velocity(time, velocity):
-    # Move tensors to CPU for NumPy conversion
+    # Move tensors to CPU for NumPy calculation
     time = time.detach().cpu().numpy()
     velocity = velocity.detach().cpu().numpy()
-    if len(time) < 4:
-        raise ValueError(f"Insufficient data points for spline fitting: m={len(time)}, required >= 4.")
+
+    # Ensure sufficient data points for meaningful smoothing
+    if len(time) < 10:  # Require at least 10 data points
+        raise ValueError(
+            f"Insufficient data points for smoothing factor selection: len(time)={len(time)}, required >= 10.")
 
     # Split into training and validation sets
-    time_train, time_val, velocity_train, velocity_val = train_test_split(time, velocity, test_size=0.3, shuffle=False)
+    try:
+        time_train, time_val, velocity_train, velocity_val = train_test_split(
+            time, velocity, test_size=0.3, shuffle=False
+        )
+    except Exception as e:
+        raise RuntimeError(f"Error during train-test split: {e}")
 
-    # Range of smoothing factors to test
-    s_values = np.linspace(0, 10, 50)  # Adjust range based on data
+    # Ensure the train set has enough points for fitting
+    if len(time_train) <= 3:
+        raise ValueError(
+            f"Training data too small for spline fitting: len(time_train)={len(time_train)}, required > 3."
+        )
+
+    # Define a range of smoothing factors to test
+    s_values = np.linspace(0, 10, 50)  # Adjust range and resolution based on data
     errors_velocity = []
 
-    # Test smoothing factors for each direction
+    # Test smoothing factors for velocity using UnivariateSpline
     for s in s_values:
-        if (len(time_train) > 3):
-            # Fit splines for each axis
+        try:
             spline_velocity = UnivariateSpline(time_train, velocity_train, s=s)
-
-            # Predict on validation set
             velocity_pred = spline_velocity(time_val)
-
-            # Compute errors
             errors_velocity.append(mean_squared_error(velocity_val, velocity_pred))
+        except Exception as e:
+            # Log any errors during spline fitting or prediction
+            print(f"Skipping smoothing factor s={s}: {e}")
 
-    # Find the best smoothing factor for each direction
+    # Handle case where no smoothing factor produced valid results
+    if not errors_velocity:
+        raise RuntimeError("No valid smoothing factors tested. Check input data or smoothing range.")
+
+    # Find the smoothing factor that minimizes the error
     best_s_velocity = s_values[np.argmin(errors_velocity)]
-
     return float(best_s_velocity)
+
 
 
 def calculate_velocity_and_distance(time, north, east, down):

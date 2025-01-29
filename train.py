@@ -21,6 +21,8 @@ def train(model, optimizer, scheduler, criterion, window_size, imu_data, gt_data
 
         epoch_loss = 0
         for i in range(0, len(x), batch_size):
+            if i+batch_size>len(x):
+                break
             inputs = x[i:i + batch_size]
 
             # Adjust input shape for BatchNorm1d: [batch_size, features, sequence_length]
@@ -64,17 +66,18 @@ def train(model, optimizer, scheduler, criterion, window_size, imu_data, gt_data
 parent_folder = r"/home/okruzelda/projects/QuadNet/Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors/Horizontal"
 
 # Initialize the PyTorch model, loss function, and optimizer
+print(f"device: {device}")
 model = QuadNet3(6, 120).to(device)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=optimizer_learning_rate)
 
-# scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', scheduler_factor,scheduler_patience, verbose=True)#factor and patience from the article
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', scheduler_factor,scheduler_patience, verbose=True)#factor and patience from the article
 # scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)  # Decay by 10% every epoch
 # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=2)
 def lr_lambda(epoch):
     return min(1.0, (epoch + 1) / 5)  # Warmup for the first 5 epochs
 
-scheduler = LambdaLR(optimizer, lr_lambda)
+#scheduler = LambdaLR(optimizer, lr_lambda)
 # Train and evaluate across all folders continuously
 iteration = 0
 for i in range(1, 23):
