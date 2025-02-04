@@ -1,131 +1,101 @@
-import pandas as pd
+from utility import *
+from modelInitialize import *
+from hyperparameter import *
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import numpy as np
-import matplotlib.pyplot as plt
-
-# Force a compatible backend (optional)
-import matplotlib
-matplotlib.use('TkAgg')
-
-# Paths to the datasets
-paths = {
-    "Horizontal Trajectory": r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal\path_1\GT.csv",
-    
-}
-
-for trajectory_type, file_path in paths.items():
-    print(f"Analyzing: {trajectory_type}")
-    
-    # Load the data
-    data = pd.read_csv(file_path)
-    
-    # Extract relevant data
-    time = data["time"]
-    distance = data["distance(meters)"]
-    speed = data["speed(m/s)"]
-    compass_heading = data[" compass_heading(degrees)"]
-    pitch = data[" pitch(degrees)"]
-    roll = data[" roll(degrees)"]
-    height = data["height_above_takeoff(meters)"]
-    north = data["North"]
-    east = data["East"]
-    
-    # Create a new figure with subplots
-    fig, axs = plt.subplots(3, 2, figsize=(12, 18))
-    fig.suptitle(f"{trajectory_type} Analysis", fontsize=16)
-
-    # 1. 2D Horizontal Trajectory
-    axs[0, 0].plot(east, north, label="2D Trajectory")
-    axs[0, 0].set_xlabel("East (m)")
-    axs[0, 0].set_ylabel("North (m)")
-    axs[0, 0].set_title("2D Horizontal Trajectory")
-    axs[0, 0].legend()
-    axs[0, 0].grid()
-
-    # 2. Height Stability Check
-    axs[0, 1].plot(time, height, label="Height Above Takeoff", color="green")
-    axs[0, 1].set_xlabel("Time (s)")
-    axs[0, 1].set_ylabel("Height (m)")
-    axs[0, 1].set_title("Height Stability Check")
-    axs[0, 1].legend()
-    axs[0, 1].grid()
-
-    # 3. Speed Analysis
-    axs[1, 0].plot(time, speed, label="Speed", color="blue")
-    axs[1, 0].set_xlabel("Time (s)")
-    axs[1, 0].set_ylabel("Speed (m/s)")
-    axs[1, 0].set_title("Speed vs. Time")
-    axs[1, 0].legend()
-    axs[1, 0].grid()
-
-    # 4. Compass Heading vs. Time
-    axs[1, 1].plot(time, compass_heading, label="Compass Heading", color="orange")
-    axs[1, 1].set_xlabel("Time (s)")
-    axs[1, 1].set_ylabel("Heading (degrees)")
-    axs[1, 1].set_title("Compass Heading vs. Time")
-    axs[1, 1].legend()
-    axs[1, 1].grid()
-
-    # 5. Position in Each Axis vs. Time
-    axs[2, 0].plot(time, north, label="North (N)", color="red")
-    axs[2, 0].plot(time, east, label="East (E)", color="blue")
-    axs[2, 0].plot(time, height, label="Altitude (Up)", color="green")
-    axs[2, 0].set_xlabel("Time (s)")
-    axs[2, 0].set_ylabel("Position (m)")
-    axs[2, 0].set_title("Position in Each Axis vs. Time")
-    axs[2, 0].legend()
-    axs[2, 0].grid()
-
-    # 6. Velocity in Each Axis vs. Time
-    axs[2, 1].plot(time, np.gradient(north, time), label="Velocity North (VN)", color="red")
-    axs[2, 1].plot(time, np.gradient(east, time), label="Velocity East (VE)", color="blue")
-    axs[2, 1].plot(time, np.gradient(height, time), label="Velocity Altitude (VD)", color="green")
-    axs[2, 1].set_xlabel("Time (s)")
-    axs[2, 1].set_ylabel("Velocity (m/s)")
-    axs[2, 1].set_title("Velocity in Each Axis vs. Time")
-    axs[2, 1].legend()
-    axs[2, 1].grid()
-
-    # Adjust layout
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-
-# Explicitly call plt.show()
-plt.show(block=True)
-
-#can you plot a time siries discription of the exsistence of meserment in IMU_1 Vs GT in the same scale
-
-# Show the plot
-
-# Create a binary existence indicator for GT and IMU_1 measurements
-imu_data = pd.read_csv(r"C:\Users\ofirk\.vscode\ansfl\Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors\Horizontal\path_1\IMU_1.csv")
-gt_existence = np.ones_like(time)
-imu_data["time"] = pd.to_numeric(imu_data["time"], errors="coerce")
-print("Rows before cleaning:", len(imu_data))
-imu_data = imu_data.dropna(subset=["time"])
-print("Rows after cleaning:", len(imu_data))
-
-imu_1_time = imu_data["time"]
-imu_1_existence = np.ones_like(imu_1_time)
-
-print("GT time range:", time.min(), time.max())
-print("IMU_1 time range:", imu_1_time.min(), imu_1_time.max())
+import pandas as pd
 
 
-# Plot existence of measurements over time
-fig, ax = plt.subplots(figsize=(12, 6))
-# Filter the time range to show only 0 to 0.4 seconds
-time_filtered = time[(time >= 0) & (time <= 0.4)]
-gt_existence_filtered = gt_existence[(time >= 0) & (time <= 0.4)]
+def test(model, criterion, window_size, imu_data, gt_data, iteration, accuracy_threshold=0.1):
+    imu_features, velocity, distance, time = create_data(imu_data, gt_data)
+    # model = model.to(device)  # Move model to GPU
 
-imu_1_time_filtered = imu_1_time[(imu_1_time >= 0) & (imu_1_time <= 0.4)]
-imu_1_existence_filtered = imu_1_existence[(imu_1_time >= 0) & (imu_1_time <= 0.4)]
+    # Normalize the features
+    imu_features = imu_features.to(device)  # Ensure tensor is on GPU
+    mean = imu_features.mean(dim=0, keepdim=True)  # Compute mean along columns (features)
+    std = imu_features.std(dim=0, keepdim=True)  # Compute std along columns (features)
+    imu_features_normalized = (imu_features - mean) / std  # Standardization formula
 
-ax.plot(time_filtered, gt_existence_filtered, label="GT Measurement Existence", color="blue", linestyle='None', marker='|')
-ax.plot(imu_1_time_filtered, imu_1_existence_filtered, label="IMU_1 Measurement Existence", color="red", linestyle='None', marker='|')
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Measurement Existence")
-ax.set_title("Existence of IMU_1 vs GT Measurements Over Time")
-ax.legend()
-ax.grid()
+    x, v, d, t = create_sequences(imu_features_normalized, velocity, distance, time, window_size)
+    # x,y,d,t = torch.tensor(x, dtype=torch.float32).to(device), torch.tensor(y, dtype=torch.float32).to(device),torch.tensor(d, dtype=torch.float32).to(device),torch.tensor(t, dtype=torch.float32).to(device)
 
-# Show the plot
-plt.show()
+    # Evaluate the model
+    model.eval()
+    with torch.no_grad():
+        x = x.permute(0, 2, 1)  # Adjust shape for testing
+        x.to(device)
+        predictions_v = model(x)
+        test_loss, prediction_d = costomize_loss(t, predictions_v.squeeze(), d.squeeze(), criterion)
+        # test_loss=criterion(predictions_v.squeeze(), v.squeeze())
+        # prediction_d = torch.cumsum(predictions_v, dim=0)
+        print(f"Iteration: {iteration} | Test Loss: {test_loss.item():.4f}")
+
+        # Plot prediction_d vs d
+        plt.figure(figsize=(10, 6))
+
+        # Move tensors to CPU before converting to NumPy for plotting
+        plt.plot(d[1:].detach().cpu().numpy(), label="Ground Truth Distance (d)", color="blue")
+        plt.plot(prediction_d.detach().cpu().numpy(), label="Predicted Distance (prediction_d)", color="orange")
+        plt.xlabel("Sample")
+        plt.ylabel("Distance")
+        plt.title("Comparison of Predicted vs Ground Truth Distance")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+        # Calculate Mean Absolute Error (MAE) as accuracy metric
+        mae = torch.mean(torch.abs(prediction_d - d[1:]))
+        print(f"Iteration: {iteration} | Test MAE: {mae.item():.4f}")
+
+        rae_distance = torch.mean(torch.abs(prediction_d - d[1:]) / torch.abs(d[
+                                                                              1:])) * 100  # A higher RAE indicates that, relative to the true values, your model's predictions are off by an average of the outcome
+        print(f"RAE distance: {rae_distance.item():.4f}")
+
+        # Calculate accuracy (percentage of predictions within a certain threshold)
+
+        accuracy = torch.mean((torch.abs(prediction_d - d[
+                                                        1:]) < accuracy_threshold).float()) * 100  # High accuracy suggests that the majority of predictions meet your application's requirements based on the chosen threshold.
+        print(f"Iteration: {iteration} | Test Accuracy: {accuracy.item():.2f}%")
+
+    return rae_distance, accuracy, mae, test_loss.item()
+
+
+# Initialize the model
+model = QuadNet3(6, 120).to(device)
+criterion = nn.MSELoss()
+model_save_path = r"/home/okruzelda/projects/QuadNet/modle.pth"
+# Load the model parameters
+model.load_state_dict(torch.load(model_save_path, weights_only=True))
+print("Model parameters loaded successfully")
+parent_folder = r"/home/okruzelda/projects/QuadNet/Quadrotor-Dead-Reckoning-with-Multiple-Inertial-Sensors/Horizontal"
+num_test = 1
+for i in range(23, 28):
+
+    # iteration += 1  # Increment iteration after loading checkpoint
+    folder_name = f"path_{i}"
+    folder_path = os.path.join(parent_folder, folder_name)
+
+    if os.path.isdir(folder_path):
+        gt_file = os.path.join(folder_path, "GT.csv")
+        imu_file = os.path.join(folder_path, "IMU_1.csv")
+
+        if os.path.exists(gt_file) and os.path.exists(imu_file):
+            gt_data = pd.read_csv(gt_file)
+            imu_data = pd.read_csv(imu_file)
+            window_size = 120
+
+            print(f"test on folder {folder_path} (Iteration 1)")
+            accuracyies, rae, maes, losses = test(model, criterion, window_size, imu_data, gt_data, iteration=1,
+                                                      accuracy_threshold=0.1)
+            print(f"for test path {i}")
+            print("accuracy", accuracyies)
+            print("RAE", rae)
+            print("mae", maes)
+            print("loss", losses)
+        else:
+            print(f"Missing data in folder {folder_path}, skipping.")
+    else:
+        print(f"Folder {folder_path} does not exist, skipping.")
